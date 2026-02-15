@@ -307,7 +307,7 @@ async def enrich_lead(
     db: AsyncSession = Depends(get_db)
 ):
     """Enrich lead with external data"""
-    from app.services.enrichment import enrichment_service
+    from app.services.enrichment import enrichment_service_enrich_lead
     
     result = await db.execute(
         select(Lead).where(
@@ -320,7 +320,7 @@ async def enrich_lead(
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Enrich lead
-    enrichment_result = await enrichment_service.enrich_lead(lead)
+    enrichment_result = await enrichment_service_enrich_lead(lead)
     lead.enrichment_data = {
         **(lead.enrichment_data or {}),
         **(enrichment_result or {})
@@ -339,8 +339,6 @@ async def export_leads_csv(
     db: AsyncSession = Depends(get_db)
 ):
     """Export leads as CSV"""
-    from app.services.export import export_service
-    
     conditions = [Lead.company_id == current_user.company_id]
     if lead_ids:
         conditions.append(Lead.id.in_(lead_ids))
@@ -348,11 +346,29 @@ async def export_leads_csv(
     result = await db.execute(select(Lead).where(and_(*conditions)))
     leads = result.scalars().all()
     
-    csv_content = export_service.leads_to_csv(leads)
+    # Build CSV content
+    import csv
+    import io
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Name', 'Email', 'Company', 'Title', 'Location', 'Phone', 'LinkedIn', 'Status'])
+    
+    for lead in leads:
+        writer.writerow([
+            lead.full_name or '',
+            lead.email or '',
+            lead.company or '',
+            lead.title or '',
+            lead.location or '',
+            lead.phone or '',
+            lead.linkedin_url or '',
+            lead.email_status
+        ])
     
     from fastapi.responses import Response
     return Response(
-        content=csv_content,
+        content=output.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=leads.csv"}
     )
